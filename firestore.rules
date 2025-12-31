@@ -1,0 +1,37 @@
+rules_version = '2';
+
+service cloud.firestore {
+  match /databases/{database}/documents {
+    
+    // Health check collection - allow read for authenticated users
+    match /_health_check/{document=**} {
+      allow read: if request.auth != null;
+      allow write: if true; // Allow backend writes (Admin SDK bypasses rules in production)
+    }
+    
+    // Valoració module
+    match /valoracions/{document=**} {
+      allow read, write: if request.auth != null;
+    }
+    
+    // Elaboració module
+    match /decrets/{document=**} {
+      allow read, write: if request.auth != null;
+    }
+    
+    // Kit module
+    match /linguistic_resources/{document=**} {
+      allow read, write: if request.auth != null;
+    }
+    
+    // Glossary collection
+    match /glossary/{document=**} {
+      allow read, write: if request.auth != null;
+    }
+
+    // Default: deny all other collections
+    match /{document=**} {
+      allow read, write: if false;
+    }
+  }
+}

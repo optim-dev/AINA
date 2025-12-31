@@ -1,0 +1,69 @@
+# ============================================================================
+# LLM Service Test Commands
+# All LLM interactions go through LLMService.ts for unified observability
+# ============================================================================
+
+# ----------------------------------------------------------------------------
+# LOCAL EMULATOR TESTS (http://127.0.0.1:5001)
+# ----------------------------------------------------------------------------
+
+# Test with default model (Gemini Flash)
+curl -X POST http://127.0.0.1:5001/aina-demostradors/europe-west4/askLLM \
+  -H "Content-Type: application/json" \
+  -d '{"data": {"prompt": "Explica què és la Sagrada Família", "module": "elaboracio", "maxTokens": 300}}'
+
+# Test with Salamandra model
+curl -X POST http://127.0.0.1:5001/aina-demostradors/europe-west4/askLLM \
+  -H "Content-Type: application/json" \
+  -d '{"data": {"prompt": "Hola, qui ets?", "provider": "salamandra", "module": "kit", "maxTokens": 200}}'
+
+# Test with Gemini Pro model
+curl -X POST http://127.0.0.1:5001/aina-demostradors/europe-west4/askLLM \
+  -H "Content-Type: application/json" \
+  -d '{"data": {"prompt": "Escriu un poema curt sobre Barcelona", "model": "gemini-pro", "maxTokens": 500}}'
+
+# Get LLM stats (local)
+curl http://127.0.0.1:5001/aina-demostradors/europe-west4/llmStats
+
+# ----------------------------------------------------------------------------
+# PRODUCTION TESTS (europe-west4-aina-demostradors.cloudfunctions.net)
+# ----------------------------------------------------------------------------
+
+# Test with default model (Gemini Flash)
+curl -X POST https://europe-west4-aina-demostradors.cloudfunctions.net/askLLM \
+  -H "Content-Type: application/json" \
+  -d '{"data": {"prompt": "Explica què és la Sagrada Família", "module": "elaboracio", "maxTokens": 300}}'
+
+# Test with Salamandra model
+curl -X POST https://europe-west4-aina-demostradors.cloudfunctions.net/askLLM \
+  -H "Content-Type: application/json" \
+  -d '{"data": {"prompt": "Hola, qui ets?", "provider": "salamandra", "module": "kit", "maxTokens": 200}}'
+
+# Test with Gemini Pro model
+curl -X POST https://europe-west4-aina-demostradors.cloudfunctions.net/askLLM \
+  -H "Content-Type: application/json" \
+  -d '{"data": {"prompt": "Escriu un poema curt sobre Barcelona", "model": "gemini-pro", "maxTokens": 500}}'
+
+# Get LLM stats (production)
+curl https://europe-west4-aina-demostradors.cloudfunctions.net/llmStats
+
+# ----------------------------------------------------------------------------
+# AVAILABLE PROVIDERS
+# ----------------------------------------------------------------------------
+# - gemini, gemini-flash, gemini-2.5-flash (default)
+# - gemini-pro, gemini-2.5-pro
+# - salamandra, salamandra-7b, salamandra-7b-instruct
+
+# ----------------------------------------------------------------------------
+# REQUEST PARAMETERS
+# ----------------------------------------------------------------------------
+# - prompt: (required) The text prompt to send to the LLM
+# - provider/model: (optional) Which LLM provider to use
+# - module: (optional) AINA module making the request (valoracio, elaboracio, kit)
+# - systemPrompt/system: (optional) System instructions for the model
+# - jsonResponse: (optional, default: true) Whether to force JSON output
+# - maxTokens: (optional, default: 2048) Maximum tokens in response
+# - temperature: (optional, default: 0.3) Creativity level (0-1)
+# - topP: (optional, default: 0.95) Nucleus sampling parameter
+# - userId: (optional) User identifier for logging
+# - sessionId: (optional) Session identifier for logging

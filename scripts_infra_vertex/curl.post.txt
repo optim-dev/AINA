@@ -1,0 +1,21 @@
+  curl -v -X POST \
+  -H "Authorization: Bearer $(gcloud auth print-access-token)" \
+  -H "Content-Type: application/json" \
+  "https://europe-west4-aiplatform.googleapis.com/v1/projects/aina-demostradors/locations/aina-demostradors/endpoints/6856794204345991168:predict" \
+  -d '{
+    "instances": [
+      {
+        "prompt": "quina es la capital de francia",
+        "max_tokens": 512,
+        "temperature": 0.7,
+        "top_p": 0.9,
+        "top_k": 40
+      }
+    ]
+  }'
+
+
+
+  curl -X POST https://europe-west4-aina-demostradors.cloudfunctions.net/askSalamandra \
+     -H "Content-Type: application/json" \
+     -d '{"prompt": "Explica m què és la Sagrada Família en una frase."}'

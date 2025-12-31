@@ -1,0 +1,18 @@
+services:
+  languagetool:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: languagetool-catalan
+    ports:
+      - "8010:8010"
+    environment:
+      - Java_Xms=512m
+      - Java_Xmx=2g
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8010/v2/languages"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 60s
