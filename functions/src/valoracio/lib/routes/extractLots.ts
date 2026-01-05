@@ -1,7 +1,7 @@
 import express from "express"
 import { AppError } from "../utils/errors"
 import { FileContent, LotInfo, LotExtractionRequest } from "../types"
-import { getLLMServiceForModel, LLMService, ContextWindowExceededError } from "../../../shared/LLMService"
+import { getLLMServiceForModel, LLMService, ContextWindowExceededError, createSalamandraLocalService } from "../../../shared/LLMService"
 import { mapReduce } from "../../../shared/PromptChunking"
 
 const router = express.Router({ mergeParams: true })
@@ -407,24 +407,34 @@ async function extractLotsFromSpecifications(specifications: FileContent[], lang
 			console.log(`📊 Document size: ${error.promptTokens} tokens, limit: ${error.maxTokens} tokens`)
 
 			try {
-				// Use map-reduce to process document in chunks
-				const mapInstruction = getPromptByLanguage(language, "CHUNK_CONTENT").replace("CHUNK_CONTENT", "{{CHUNK}}").replace("DOCUMENTS D'ESPECIFICACIONS:", "SECCIÓ DEL DOCUMENT:")
+				// Use CONCISE map instruction to fit in smaller context window
+				// The full prompt is ~2000 tokens, but for map-reduce we need ~200 tokens max
+				const mapInstruction = `Extreu els lots d'aquesta secció del document de licitació.
 
-				const reduceInstruction = `
-Combina tots els lots extrets de les diferents seccions del document.
+Busca mencions de: "Lot", "Lote", "Lots", "Lotes" amb numeració.
+Extreu el número, títol i descripció de cada lot trobat.
 
-REGLES DE COMBINACIÓ:
-1. Elimina lots duplicats (mateix número i títol similar)
-2. Si un lot apareix amb més detalls en una secció, usa aquesta versió
-3. Mantén la numeració original dels lots
-4. Si no hi ha lots múltiples identificats, retorna un sol lot únic
+Si no trobes cap lot, retorna: {"lots": []}
 
-Retorna NOMÉS un array JSON amb els lots finals.
-Format: [{"lotNumber": 1, "title": "...", "description": "..."}]
-				`.trim()
+Retorna JSON: {"lots": [{"lotNumber": 1, "title": "...", "description": "..."}]}`
+
+				const reduceInstruction = `Combina els lots de totes les seccions.
+
+REGLES:
+1. Elimina duplicats (mateix número i títol)
+2. Si un lot apareix amb més detalls, usa aquesta versió
+3. Mantén la numeració original
+
+Si no hi ha lots, retorna un lot únic.
+Retorna NOMÉS JSON: [{"lotNumber": 1, "title": "...", "description": "..."}]`
+
+				// Use Salamandra Local for map-reduce - it's the only model that works reliably locally
+				// The original llmService might be ALIA/Gemini which return 404/403 locally
+				const mapReduceService = createSalamandraLocalService()
+				console.log("📦 Using Salamandra Local for map-reduce processing")
 
 				const result = await mapReduce(
-					llmService,
+					mapReduceService,
 					specsContent,
 					{
 						mapInstruction,

@@ -56,8 +56,8 @@ export default function LoginForm() {
 				displayName: userCredential.user.displayName,
 			})
 
-			// Navigate to dashboard
-			navigate("/dashboard")
+			// Navigate to health monitor
+			navigate("/health")
 		} catch (e) {
 			let errorMessage = "Unknown error"
 

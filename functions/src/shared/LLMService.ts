@@ -25,6 +25,9 @@ export const CONTEXT_WINDOW_CONFIG = {
 	/** Enable auto-fallback to larger context models (default: true) */
 	autoFallback: process.env.CONTEXT_WINDOW_AUTO_FALLBACK === "true" || process.env.CONTEXT_WINDOW_AUTO_FALLBACK === undefined,
 
+	/** Enable auto map-reduce when context exceeded and no fallback available (default: false) */
+	autoMapReduce: process.env.CONTEXT_WINDOW_AUTO_MAP_REDUCE === "true",
+
 	/** Default chunk size for map-reduce (default: 12000 tokens) */
 	defaultChunkSize: parseInt(process.env.CONTEXT_WINDOW_DEFAULT_CHUNK_SIZE || "12000", 10),
 
@@ -59,7 +62,7 @@ export const CONTEXT_WINDOW_LIMITS: Record<LLMProvider, number> = {
 	[LLMProvider.GEMINI_PRO]: 1_048_576, // 1M tokens
 	[LLMProvider.SALAMANDRA]: 8_192, // 8k tokens
 	[LLMProvider.SALAMANDRA_7B_INSTRUCT]: 8_192, // 8k tokens
-	[LLMProvider.SALAMANDRA_7B_LOCAL]: 8_192, // 8k tokens
+	[LLMProvider.SALAMANDRA_7B_LOCAL]: 4_096, // 4k tokens
 	[LLMProvider.ALIA_40B_INSTRUCT]: 16_384, // 16k tokens (can be 32k with different endpoint)
 }
 
@@ -99,6 +102,8 @@ export interface LLMRequest {
 	jsonResponse?: boolean
 	/** The AINA module making the request (valoracio, elaboracio, kit) */
 	module?: AinaModule
+	/** Internal flag to prevent recursive auto-fallback/map-reduce. DO NOT SET MANUALLY. */
+	_skipAutoStrategies?: boolean
 }
 
 export interface TokenUsage {
@@ -392,6 +397,13 @@ export class LLMService {
 	}
 
 	/**
+	 * Get the current provider
+	 */
+	getProvider(): LLMProvider {
+		return this.config.provider
+	}
+
+	/**
 	 * Get lazy-initialized Prediction client
 	 */
 	private getPredictionClient(): PredictionServiceClient {
@@ -616,8 +628,12 @@ export class LLMService {
 		// STEP 1: Validate context window BEFORE making the API call
 		const validation = await this.validateContextWindow(request, options)
 
+		// Check if we should skip auto-strategies (prevents infinite recursion from map-reduce)
+		const skipAutoStrategies = request._skipAutoStrategies === true
+
 		if (!validation.fits) {
-			const autoFallback = this.config.autoFallback !== false // Default to true
+			// Only use auto-fallback if not explicitly disabled AND not skipping auto strategies
+			const autoFallback = this.config.autoFallback !== false && !skipAutoStrategies
 
 			logger.warn("⚠️  Context window exceeded", {
 				requestId,
@@ -625,6 +641,7 @@ export class LLMService {
 				estimatedPromptTokens: validation.estimatedPromptTokens,
 				availableInputTokens: validation.availableInputTokens,
 				autoFallback,
+				skipAutoStrategies,
 			})
 
 			if (autoFallback) {
@@ -665,12 +682,128 @@ export class LLMService {
 							fallbackProvider,
 							error: fallbackError.message,
 						})
-						// Continue to throw original context error below
+						// Continue to check auto map-reduce below
 					}
 				}
 			}
 
-			// If no fallback or fallback failed, throw context error
+			// STEP 2: Try auto map-reduce if enabled and fallback failed/unavailable
+			// Skip if we're already inside a map-reduce operation (prevents infinite recursion)
+			if (CONTEXT_WINDOW_CONFIG.autoMapReduce && !skipAutoStrategies) {
+				logger.info("🔄 Attempting auto map-reduce", {
+					requestId,
+					provider: this.config.provider,
+					estimatedPromptTokens: validation.estimatedPromptTokens,
+				})
+
+				try {
+					// Import dynamically to avoid circular dependency
+					const { mapReduce } = await import("./PromptChunking.js")
+
+					// Extract the user's original question/task from the prompt
+					// The prompt may contain context + question, try to preserve both
+					const userPrompt = request.prompt
+					const systemContext = request.systemPrompt || ""
+
+					// Build context-aware map-reduce instructions
+					// MAP: Process each chunk while keeping the user's goal in mind
+					const mapInstruction = systemContext
+						? `${systemContext}
+
+TASCA ORIGINAL DE L'USUARI:
+${userPrompt.slice(0, 500)}${userPrompt.length > 500 ? "..." : ""}
+
+Analitza aquesta secció del document i extreu la informació rellevant per respondre a la tasca de l'usuari:`
+						: `TASCA ORIGINAL DE L'USUARI:
+${userPrompt.slice(0, 500)}${userPrompt.length > 500 ? "..." : ""}
+
+Analitza aquesta secció del document i extreu la informació rellevant per respondre a la tasca de l'usuari:`
+
+					// REDUCE: Synthesize all partial results into a coherent final answer
+					const reduceInstruction = `TASCA ORIGINAL DE L'USUARI:
+${userPrompt.slice(0, 300)}${userPrompt.length > 300 ? "..." : ""}
+
+A continuació tens els resultats parcials de l'anàlisi de diferents seccions del document.
+Sintetitza tota la informació en una resposta final coherent i completa que respongui directament a la tasca de l'usuari.
+No repeteixis informació. Prioritza els punts més rellevants.`
+
+					// Pass maxOutputTokens from request (default to 512 for map-reduce)
+					const maxOutputTokens = request.options?.maxTokens || 512
+
+					// For map-reduce, we need a model that can actually process chunks
+					// If the current provider failed (e.g., ALIA 404, Gemini 403), use Salamandra Local
+					// which is always available during local development
+					let mapReduceService: LLMService = this
+
+					// Check if we should use a different (working) model for map-reduce
+					// This is especially important when fallback models aren't available locally
+					if (
+						this.config.provider === LLMProvider.ALIA_40B_INSTRUCT ||
+						this.config.provider === LLMProvider.GEMINI ||
+						this.config.provider === LLMProvider.GEMINI_FLASH ||
+						this.config.provider === LLMProvider.GEMINI_PRO
+					) {
+						// Try to use Salamandra Local which works with Ollama
+						const salamandraConfig: LLMConfig = {
+							provider: LLMProvider.SALAMANDRA_7B_LOCAL,
+							projectId: this.config.projectId,
+							region: this.config.region,
+							ollamaEndpoint: process.env.OLLAMA_ENDPOINT || "http://localhost:11434",
+							ollamaModel: process.env.OLLAMA_MODEL || "cas/salamandra-7b-instruct",
+							autoFallback: false, // Don't fallback from map-reduce chunks
+						}
+						mapReduceService = new LLMService(salamandraConfig)
+						if (this.logCallback) {
+							mapReduceService.setLogCallback(this.logCallback)
+						}
+						logger.info("Map-reduce using Salamandra Local (fallback provider not available)", {
+							originalProvider: this.config.provider,
+							mapReduceProvider: LLMProvider.SALAMANDRA_7B_LOCAL,
+						})
+					}
+
+					console.log(">>>>>>>>>>>>>>>>>>>>")
+					console.log("AUTO MAP-REDUCE ENABLED")
+					console.log("MAX OUTPUT TOKENS FOR MAP-REDUCE:", maxOutputTokens)
+					console.log("MAP-REDUCE PROVIDER:", mapReduceService.getProvider())
+					console.log("<<<<<<<<<<<<<<<<<<<<")
+					const mapReduceResponse = await mapReduce(
+						mapReduceService,
+						request.prompt,
+						{
+							mapInstruction,
+							reduceInstruction,
+							includeMetadata: true,
+						},
+						{}, // Use env var defaults for chunking options
+						maxOutputTokens
+					)
+
+					logger.info("✅ Auto map-reduce successful", {
+						requestId,
+						totalChunks: mapReduceResponse.metadata?.totalChunks,
+					})
+
+					// Add map-reduce metadata to response
+					return {
+						...mapReduceResponse,
+						metadata: {
+							...mapReduceResponse.metadata,
+							autoMapReduceUsed: true,
+							originalProvider: this.config.provider,
+							fallbackAttempted: autoFallback,
+						},
+					}
+				} catch (mapReduceError: any) {
+					logger.error("❌ Auto map-reduce failed", {
+						requestId,
+						error: mapReduceError.message,
+					})
+					// Continue to throw original context error below
+				}
+			}
+
+			// If no fallback/map-reduce or both failed, throw context error
 			throw new ContextWindowExceededError(validation.estimatedPromptTokens, validation.availableInputTokens, this.config.provider)
 		}
 
@@ -709,16 +842,20 @@ export class LLMService {
 
 				case LLMProvider.SALAMANDRA_7B_LOCAL:
 					console.log("Calling SALAMANDRA LOCAL (Ollama)")
+					// console.log("prompt:", request.prompt)
 					const salamandraLocalResult = await this.callSalamandraLocal(request, options)
 					responseText = salamandraLocalResult.text
+					// console.log("SALAMANDRA LOCAL RESPONSE TEXT:", responseText)
 					usage = salamandraLocalResult.usage
 					predictLatencyMs = salamandraLocalResult.latencyMs
 					break
 
 				case LLMProvider.ALIA_40B_INSTRUCT:
 					console.log("Calling ALIA-40B")
+					// console.log("prompt:", request.prompt)
 					const aliaResult = await this.callAlia(request, options)
 					responseText = aliaResult.text
+					// console.log("ALIA RESPONSE TEXT:", responseText)
 					usage = aliaResult.usage
 					predictLatencyMs = aliaResult.latencyMs
 					break
@@ -756,7 +893,6 @@ export class LLMService {
 			}
 
 			console.log(">>>>>>>>>>>>>>>>>")
-			console.log("RESO:", response)
 
 			return response
 		} catch (err: any) {
@@ -823,12 +959,17 @@ export class LLMService {
 	}
 
 	/**
-	 * Call Google Gemini models via Genkit or direct API
+	 * Call Google Gemini models via Vertex AI
+	 * Uses the @google/genai SDK in Vertex AI mode (not AI Studio)
 	 */
 	private async callGemini(request: LLMRequest, options: LLMRequestOptions): Promise<{ text: string; usage: TokenUsage; latencyMs: number }> {
 		const { GoogleGenAI } = require("@google/genai")
 
+		// IMPORTANT: Use vertexai: true to use Vertex AI endpoint instead of AI Studio
+		// AI Studio uses generativelanguage.googleapis.com and requires API key or specific OAuth scopes
+		// Vertex AI uses aiplatform.googleapis.com and works with Application Default Credentials
 		const genai = new GoogleGenAI({
+			vertexai: true,
 			project: this.config.projectId,
 			location: this.config.region,
 		})
@@ -932,13 +1073,23 @@ export class LLMService {
 		// Get or find the endpoint
 		const endpointResourceName = await this.findSalamandraEndpoint()
 
-		// Format prompt in Salamandra's chat format
+		// Enhance system prompt for Salamandra to prevent echoing/copying input
+		let effectiveSystemPrompt = request.systemPrompt || ""
+		const antiEchoInstructions = `
+
+INSTRUCCIONS IMPORTANTS:
+- NO copiïs ni repeteixis el text d'entrada.
+- GENERA contingut NOU i ORIGINAL basat en les dades proporcionades.
+- EXPANDEIX i ELABORA la informació, no la repeteixis textualment.
+- La teva resposta ha de ser DIFERENT del text que t'he proporcionat.`
+
+		// Format prompt in Salamandra's chat format (ChatML)
 		let formattedPrompt: string
 
 		if (request.jsonResponse) {
 			// JSON mode: Force JSON output with system instructions and few-shot examples
-			const effectiveSystem = request.systemPrompt
-				? `${request.systemPrompt} Respon estrictament en format JSON sense text addicional.`
+			const jsonSystemPrompt = effectiveSystemPrompt
+				? `${effectiveSystemPrompt} Respon estrictament en format JSON sense text addicional.`
 				: `Ets un assistent útil. Respon ÚNICAMENT amb JSON vàlid. No incloguis cap text fora del JSON.
 - Si et demanen una LLISTA d'elements, respon amb un array JSON directament: ["element1", "element2", "element3"]
 - Si et demanen informació general, respon amb un objecte: {"response": "la teva resposta"}`
@@ -946,11 +1097,14 @@ export class LLMService {
 			// Few-shot examples to reinforce JSON format
 			const fewShot = `<|im_start|>user\nDona'm 3 colors primaris\n<|im_end|>\n<|im_start|>assistant\n["vermell", "blau", "groc"]\n<|im_end|>\n<|im_start|>user\nHola\n<|im_end|>\n<|im_start|>assistant\n{"response": "Hola! En què et puc ajudar?"}\n<|im_end|>\n`
 
-			formattedPrompt = `<|im_start|>system\n${effectiveSystem}<|im_end|>\n${fewShot}<|im_start|>user\n${request.prompt}<|im_end|>\n<|im_start|>assistant\n`
-		} else if (request.systemPrompt) {
-			formattedPrompt = `<|im_start|>system\n${request.systemPrompt}<|im_end|>\n<|im_start|>user\n${request.prompt}<|im_end|>\n<|im_start|>assistant`
+			formattedPrompt = `<|im_start|>system\n${jsonSystemPrompt}<|im_end|>\n${fewShot}<|im_start|>user\n${request.prompt}<|im_end|>\n<|im_start|>assistant\n`
+		} else if (effectiveSystemPrompt) {
+			// Add anti-echo instructions for non-JSON generative tasks
+			const enhancedSystem = `${effectiveSystemPrompt}${antiEchoInstructions}`
+			formattedPrompt = `<|im_start|>system\n${enhancedSystem}<|im_end|>\n<|im_start|>user\n${request.prompt}<|im_end|>\n<|im_start|>assistant\n`
 		} else {
-			formattedPrompt = `<|im_start|>user\n${request.prompt}<|im_end|>\n<|im_start|>assistant`
+			// Even without system prompt, add basic anti-echo instruction
+			formattedPrompt = `<|im_start|>system\nEts un assistent útil que genera contingut original. NO copiïs el text d'entrada, genera una resposta nova.<|im_end|>\n<|im_start|>user\n${request.prompt}<|im_end|>\n<|im_start|>assistant\n`
 		}
 
 		const instanceValue = helpers.toValue({
@@ -1160,23 +1314,37 @@ export class LLMService {
 		const ollamaEndpoint = this.config.ollamaEndpoint || process.env.OLLAMA_ENDPOINT || "http://localhost:11434"
 		const ollamaModel = this.config.ollamaModel || process.env.OLLAMA_MODEL || "cas/salamandra-7b-instruct"
 
+		// Enhance system prompt for Salamandra to prevent echoing/copying input
+		// This is important because smaller models tend to copy input text verbatim
+		let effectiveSystemPrompt = request.systemPrompt || ""
+		const antiEchoInstructions = `
+
+INSTRUCCIONS IMPORTANTS:
+- NO copiïs ni repeteixis el text d'entrada.
+- GENERA contingut NOU i ORIGINAL basat en les dades proporcionades.
+- EXPANDEIX i ELABORA la informació, no la repeteixis textualment.
+- La teva resposta ha de ser DIFERENT del text que t'he proporcionat.`
+
 		// Format prompt in ChatML format (same as Salamandra on Vertex)
 		let formattedPrompt: string
 
 		if (request.jsonResponse) {
-			const effectiveSystem = request.systemPrompt
-				? `${request.systemPrompt} Respon estrictament en format JSON sense text addicional.`
+			const jsonSystemPrompt = effectiveSystemPrompt
+				? `${effectiveSystemPrompt} Respon estrictament en format JSON sense text addicional.`
 				: `Ets un assistent útil. Respon ÚNICAMENT amb JSON vàlid. No incloguis cap text fora del JSON.
 - Si et demanen una LLISTA d'elements, respon amb un array JSON directament: ["element1", "element2", "element3"]
 - Si et demanen informació general, respon amb un objecte: {"response": "la teva resposta"}`
 
 			const fewShot = `<|im_start|>user\nDona'm 3 colors primaris\n<|im_end|>\n<|im_start|>assistant\n["vermell", "blau", "groc"]\n<|im_end|>\n<|im_start|>user\nHola\n<|im_end|>\n<|im_start|>assistant\n{"response": "Hola! En què et puc ajudar?"}\n<|im_end|>\n`
 
-			formattedPrompt = `<|im_start|>system\n${effectiveSystem}<|im_end|>\n${fewShot}<|im_start|>user\n${request.prompt}<|im_end|>\n<|im_start|>assistant\n`
-		} else if (request.systemPrompt) {
-			formattedPrompt = `<|im_start|>system\n${request.systemPrompt}<|im_end|>\n<|im_start|>user\n${request.prompt}<|im_end|>\n<|im_start|>assistant`
+			formattedPrompt = `<|im_start|>system\n${jsonSystemPrompt}<|im_end|>\n${fewShot}<|im_start|>user\n${request.prompt}<|im_end|>\n<|im_start|>assistant\n`
+		} else if (effectiveSystemPrompt) {
+			// Add anti-echo instructions for non-JSON generative tasks
+			const enhancedSystem = `${effectiveSystemPrompt}${antiEchoInstructions}`
+			formattedPrompt = `<|im_start|>system\n${enhancedSystem}<|im_end|>\n<|im_start|>user\n${request.prompt}<|im_end|>\n<|im_start|>assistant\n`
 		} else {
-			formattedPrompt = `<|im_start|>user\n${request.prompt}<|im_end|>\n<|im_start|>assistant`
+			// Even without system prompt, add basic anti-echo instruction
+			formattedPrompt = `<|im_start|>system\nEts un assistent útil que genera contingut original. NO copiïs el text d'entrada, genera una resposta nova.<|im_end|>\n<|im_start|>user\n${request.prompt}<|im_end|>\n<|im_start|>assistant\n`
 		}
 
 		// Ollama API request body

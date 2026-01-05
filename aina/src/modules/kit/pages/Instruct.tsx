@@ -48,6 +48,7 @@ export default function Instruct() {
 				prompt: userMessage.content,
 				module: MODULE,
 				model: selectedModel || "gemini-2.5-flash",
+				maxTokens: 100,
 			})
 			const data = result.data
 

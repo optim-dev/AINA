@@ -9,7 +9,7 @@
 
 import * as logger from "firebase-functions/logger"
 import type { LLMService, LLMResponse } from "./LLMService"
-import { estimateTokensAdvanced, CONTEXT_WINDOW_CONFIG } from "./LLMService"
+import { estimateTokensAdvanced, CONTEXT_WINDOW_CONFIG, CONTEXT_WINDOW_LIMITS, LLMProvider } from "./LLMService"
 
 // ============================================================================
 // DEFAULT CONFIGURATION
@@ -242,13 +242,44 @@ function getOverlapSentences(sentences: string[], targetTokens: number): string[
  *
  * Example use case: Extracting lots from a large tender specification
  */
-export async function mapReduce(llmService: LLMService, text: string, options: MapReduceOptions, chunkingOptions: Partial<ChunkingOptions> = {}): Promise<LLMResponse> {
+export async function mapReduce(llmService: LLMService, text: string, options: MapReduceOptions, chunkingOptions: Partial<ChunkingOptions> = {}, maxOutputTokens: number = 512): Promise<LLMResponse> {
 	const { mapInstruction, reduceInstruction, includeMetadata = true } = options
 
-	// STEP 1: Chunk the text with defaults from env vars
+	// Get the model's context window limit
+	const provider = llmService.getProvider()
+	const contextLimit = CONTEXT_WINDOW_LIMITS[provider as LLMProvider] || 8192
+
+	// Calculate adaptive chunk size based on model's context window
+	// Reserve tokens for: instruction (~200), output (maxOutputTokens), and safety margin (10%)
+	const instructionOverhead = 200 // Approximate tokens for map instruction wrapper
+	const safetyMargin = Math.floor(contextLimit * 0.1)
+	const adaptiveChunkSize = Math.max(
+		100, // Minimum chunk size
+		contextLimit - maxOutputTokens - instructionOverhead - safetyMargin
+	)
+
+	logger.info("Calculated adaptive chunk size", {
+		provider,
+		contextLimit,
+		maxOutputTokens,
+		instructionOverhead,
+		safetyMargin,
+		adaptiveChunkSize,
+		envChunkSize: CONTEXT_WINDOW_CONFIG.defaultChunkSize,
+	})
+
+	// STEP 1: Chunk the text - use adaptive size if smaller than env default
+	const effectiveChunkSize = Math.min(adaptiveChunkSize, CONTEXT_WINDOW_CONFIG.defaultChunkSize)
+	const effectiveOverlap = Math.min(
+		chunkingOptions.overlapTokens ?? CONTEXT_WINDOW_CONFIG.defaultOverlapTokens,
+		Math.floor(effectiveChunkSize * 0.1) // Max 10% overlap
+	)
+
 	const fullChunkingOptions: ChunkingOptions = {
 		...DEFAULT_CHUNKING_OPTIONS,
 		...chunkingOptions,
+		maxTokensPerChunk: effectiveChunkSize,
+		overlapTokens: effectiveOverlap,
 	}
 	const strategy = fullChunkingOptions.strategy || "paragraph"
 	let chunkResult: ChunkResult
@@ -287,6 +318,10 @@ export async function mapReduce(llmService: LLMService, text: string, options: M
 			const response = await llmService.callModel({
 				prompt: mapPrompt,
 				jsonResponse: true, // Force JSON for easier parsing
+				_skipAutoStrategies: true, // Prevent recursive auto-fallback/map-reduce
+				options: {
+					maxTokens: maxOutputTokens, // Use controlled output size for map phase
+				},
 			})
 
 			mapResults.push(response.text)
@@ -311,6 +346,10 @@ export async function mapReduce(llmService: LLMService, text: string, options: M
 	const reduceResponse = await llmService.callModel({
 		prompt: reducePrompt,
 		jsonResponse: true,
+		_skipAutoStrategies: true, // Prevent recursive auto-fallback/map-reduce
+		options: {
+			maxTokens: maxOutputTokens, // Use controlled output size for reduce phase
+		},
 	})
 
 	logger.info("Map-reduce completed", {

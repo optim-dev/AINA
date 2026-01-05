@@ -116,11 +116,11 @@ _Nota: Les credencials de Gemini API es gestionen internament per LLMService mit
 ### Scripts Disponibles
 
 ```bash
-npm run dev              # Executa Next.js en mode desenvolupament
+npm run dev              # Executa Vite dev server (frontend)
 npm run build            # Build per a producció
-npm run start            # Executa la versió de producció
+npm run preview          # Preview del build de producció
 npm run lint             # Executa ESLint
-npm run type-check       # Comprova els tipus de TypeScript
+npm run type-check       # Comprova els tipus de TypeScript (si configurat)
 
 # Firebase Functions
 npm run functions:serve  # Emula les functions localment
@@ -152,73 +152,86 @@ Aquest projecte està llicenciat sota **Apache License 2.0**. Vegeu el fitxer [L
 │   ├── src/
 │   │   ├── App.tsx               # Component principal
 │   │   ├── main.tsx              # Punt d'entrada
+│   │   ├── index.css             # Estils globals
+│   │   ├── App.css               # Estils App
 │   │   ├── vite-env.d.ts         # Vite type declarations
 │   │   ├── components/           # Components UI globals
 │   │   │   ├── AppSidebar.jsx   # Navegació lateral
 │   │   │   ├── DashboardLayout.jsx
 │   │   │   ├── LoginForm.jsx    # Formulari autenticació
+│   │   │   ├── LoginForm.css
 │   │   │   ├── NavHeader.jsx    # Capçalera navegació
 │   │   │   ├── ProtectedRoute.jsx
 │   │   │   └── ui/              # Components UI reutilitzables (shadcn)
 │   │   ├── modules/              # Mòduls de l'aplicació
+│   │   │   ├── README.md        # Documentació dels mòduls
 │   │   │   ├── valoracio/       # Mòdul Valoració d'Ofertes
+│   │   │   │   ├── README.md
+│   │   │   │   ├── index.js
 │   │   │   │   ├── components/  # Components específics
 │   │   │   │   ├── lib/         # Lògica de negoci
 │   │   │   │   ├── pages/       # Pàgines del mòdul
-│   │   │   │   ├── types/       # Tipus TypeScript
-│   │   │   │   └── index.js
+│   │   │   │   ├── services/    # Serveis específics
+│   │   │   │   └── types/       # Tipus TypeScript
 │   │   │   ├── elaboracio/      # Mòdul Elaboració Decrets
+│   │   │   │   ├── README.md
+│   │   │   │   ├── QUICK_START.md
+│   │   │   │   ├── INFORME_TECNIC_STEPS.md
+│   │   │   │   ├── index.js
 │   │   │   │   ├── components/
 │   │   │   │   ├── lib/
 │   │   │   │   ├── pages/
-│   │   │   │   ├── types/
-│   │   │   │   └── index.js
+│   │   │   │   ├── services/
+│   │   │   │   └── types/
 │   │   │   ├── kit/             # Mòdul Kit Lingüístic
+│   │   │   │   ├── index.js
 │   │   │   │   ├── components/
+│   │   │   │   ├── hooks/       # Custom hooks del mòdul
 │   │   │   │   ├── lib/
 │   │   │   │   ├── pages/
-│   │   │   │   ├── types/
-│   │   │   │   └── index.js
+│   │   │   │   └── types/
 │   │   │   └── shared/          # Components i lògica compartida
+│   │   │       ├── index.js
 │   │   │       ├── components/
 │   │   │       ├── lib/
-│   │   │       ├── types/
-│   │   │       └── index.js
+│   │   │       └── types/
 │   │   ├── pages/                # Pàgines principals
-│   │   │   └── Dashboard.jsx
-│   │   ├── services/             # Serveis externs
-│   │   │   └── firebase.js      # Configuració Firebase
+│   │   │   ├── Dashboard.jsx
+│   │   │   ├── Health.jsx       # Monitoratge salut del sistema
+│   │   │   ├── ModelMetriques.jsx
+│   │   │   ├── ModelSelection.jsx
+│   │   │   └── Moduls.jsx
+│   │   ├── services/             # Serveis externs globals
+│   │   │   ├── firebase.js      # Configuració Firebase
+│   │   │   ├── kitService.ts    # Servei Kit Lingüístic
+│   │   │   ├── llmHealthService.ts
+│   │   │   └── metricsService.ts
 │   │   ├── stores/               # Gestió d'estat (Zustand)
-│   │   │   └── authStore.js
-│   │   ├── hooks/                # Custom React hooks
-│   │   └── lib/                  # Utilitats generals
-│   │       └── utils.js
-│   ├── public/                   # Recursos estàtics
-│   ├── next_valoracio_ofertes/   # Next.js per Valoració (subprojecte)
-│   │   ├── src/
-│   │   │   ├── app/             # Next.js App Router
-│   │   │   │   ├── components/  # Components específics de pàgina
-│   │   │   │   ├── globals.css
-│   │   │   │   ├── layout.tsx
-│   │   │   │   └── page.tsx
-│   │   │   ├── components/      # Components React globals
-│   │   │   ├── hooks/           # Custom hooks
-│   │   │   ├── i18n/            # Internacionalització
-│   │   │   ├── lib/             # Utilitats i serveis
-│   │   │   ├── stores/          # Gestió d'estat
-│   │   │   └── types/           # Tipus TypeScript
-│   │   ├── messages/            # Traduccions (ca, en, es)
-│   │   ├── next.config.ts
-│   │   ├── tailwind.config.ts
-│   │   └── package.json
-│   ├── components.json          # Configuració shadcn/ui
-│   ├── vite.config.js
-│   └── package.json
+│   │   │   ├── authStore.js
+│   │   │   └── settingsStore.js
+│   │   ├── hooks/                # Custom React hooks globals
+│   │   │   ├── use-mobile.jsx
+│   │   │   └── useMetrics.ts
+│   │   ├── lib/                  # Utilitats generals
+│   │   │   └── utils.js
+│   │   └── assets/               # Recursos estàtics (imatges, etc.)
+│   ├── public/                   # Recursos estàtics públics
+│   ├── components.json           # Configuració shadcn/ui
+│   ├── vite.config.ts            # Configuració Vite
+│   ├── tsconfig.json             # Configuració TypeScript
+│   ├── tsconfig.app.json         # Config TS per l'app
+│   ├── tsconfig.node.json        # Config TS per Node
+│   ├── eslint.config.js          # Configuració ESLint
+│   ├── index.html                # HTML principal
+│   └── package.json              # Dependències frontend
 ├── functions/                     # Firebase Cloud Functions
 │   ├── src/
 │   │   ├── index.ts             # Export de totes les functions
 │   │   ├── genkit-sample.ts     # Exemple Genkit
+│   │   ├── auth/                # Functions d'autenticació
 │   │   ├── valoracio/           # Functions del mòdul Valoració
+│   │   │   ├── README.md
+│   │   │   ├── IMPLEMENTATION_SUMMARY.md
 │   │   │   ├── index.ts
 │   │   │   └── lib/
 │   │   ├── elaboracio/          # Functions del mòdul Elaboració
@@ -226,33 +239,106 @@ Aquest projecte està llicenciat sota **Apache License 2.0**. Vegeu el fitxer [L
 │   │   │   └── lib/
 │   │   ├── kit/                 # Functions del mòdul Kit
 │   │   │   ├── index.ts
-│   │   │   └── lib/
-│   │   └── shared/              # Utilitats compartides
-│   │       ├── logger.ts
-│   │       └── utils.ts
+│   │   │   ├── lib/
+│   │   │   ├── types/
+│   │   │   ├── glossaryHandler.ts
+│   │   │   ├── languageToolHandler.ts
+│   │   │   ├── ragProcessHandler.ts
+│   │   │   ├── styleToneHandler.ts
+│   │   │   ├── styleRulesEngine.ts
+│   │   │   ├── LanguageToolLogger.ts
+│   │   │   ├── RAGProcessLogger.ts
+│   │   │   └── StyleToneLogger.ts
+│   │   ├── shared/              # Utilitats compartides
+│   │   │   ├── index.ts
+│   │   │   ├── logger.ts
+│   │   │   ├── utils.ts
+│   │   │   ├── BigQueryLogger.ts
+│   │   │   ├── LLMService.ts
+│   │   │   ├── MetricsEngine.ts
+│   │   │   ├── bigQueryApi.ts
+│   │   │   ├── healthCheck.ts
+│   │   │   ├── llmApi.ts
+│   │   │   ├── llmHealthCheck.ts
+│   │   │   ├── metricsApi.ts
+│   │   │   ├── verticalProcessHandler.ts
+│   │   │   └── README_*.md
+│   │   └── types/               # Tipus TypeScript compartits
+│   ├── lib/                     # Codi compilat (JavaScript)
+│   ├── .env.local               # Variables d'entorn (desenvolupament)
+│   ├── .env.aina-demostradors   # Variables d'entorn (producció)
 │   ├── package.json
-│   └── tsconfig.json
+│   ├── tsconfig.json
+│   └── tsconfig.dev.json
+├── languagetool/                  # Servei LanguageTool (Docker/Cloud Run)
+│   ├── Dockerfile
+│   ├── docker-compose.yml
+│   ├── deploy.sh                # Script desplegament a Cloud Run
+│   ├── README.md                # Documentació infra
+│   └── BACKEND_INTEGRATION.md   # Guia integració backend
+├── rag_service/                   # Servei RAG (NLP + FAISS)
+│   ├── main.py                  # FastAPI server
+│   ├── Dockerfile
+│   ├── requirements.txt
+│   ├── deploy.sh                # Script desplegament a Cloud Run
+│   ├── build_index.py           # Construcció índex FAISS
+│   ├── build_dynamic_index.py   # Construcció dinàmica
+│   ├── test_nlp_detection.py   # Tests NLP
+│   ├── test_service.sh          # Script de testing
+│   ├── README.md                # Documentació servei
+│   ├── ARCHITECTURE.md          # Arquitectura tècnica
+│   ├── NLP_IMPLEMENTATION_SUMMARY.md
+│   ├── model_embeddings_selection.md
+│   └── data/                    # Índex FAISS i metadades
+│       ├── glossari_index.faiss
+│       ├── glossari_metadata.pkl
+│       └── termes.csv
+├── scripts_infra_vertex/          # Scripts gestió infra Vertex AI
+│   ├── README.md
+│   ├── VERTEX_CONFIG.md
+│   ├── JSON_CALL.md
+│   ├── base.py
+│   ├── lifecycle.py
+│   ├── lifecycle_big.py
+│   ├── lifecycle.js
+│   ├── shutdown.py
+│   ├── shutdown_big.py
+│   └── curl.post.txt
 ├── docs/                          # Documentació del projecte
-│   ├── architecture.md
-│   ├── api.md
-│   └── development.md
+│   ├── architecture.md          # Arquitectura general
+│   ├── arquitectura-disseny-tecnic.md
+│   ├── arquitectura-disseny-tecnic-no-anon.md
+│   ├── api.md                   # Documentació API
+│   ├── development.md           # Guia desenvolupament
+│   ├── decret-developer-guide.md
+│   ├── BigQueryLogs.md          # Esquema logs BigQuery
+│   ├── bigquery-schema.md       # Esquema detallat BigQuery
+│   ├── 5-validacio-avaluacio-metriques.md
+│   ├── 7-manual-desplegament-us.md
+│   ├── integracio-recursos-aina.md
+│   ├── kit-validacio-estil-to-requeriments.md
+│   ├── validateToneStyle.md     # Validació to i estil
+│   ├── validateToneStyleHuman.md
+│   └── incidencies.md
 ├── firebase.json                  # Configuració Firebase
 ├── firestore.rules               # Regles de seguretat Firestore
 ├── firestore.indexes.json        # Índexs Firestore
 ├── storage.rules                 # Regles de seguretat Storage
 ├── apphosting.emulator.yaml      # Configuració emulador
-└── README.md
+├── package.json                  # Scripts root del projecte
+└── README.md                     # Aquest fitxer
 ```
 
 ## 🔧 Tecnologies
 
 ### Frontend
 
-- **Next.js 14+**: Framework React amb App Router
-- **React 18+**: Llibreria UI
-- **TypeScript**: Tipat estàtic
-- **Tailwind CSS**: Framework CSS utility-first
-- **Shadcn/ui**: Components UI accessibles
+- **React 19+**: Llibreria UI moderna
+- **Vite 7+**: Build tool i dev server ràpid amb HMR
+- **TypeScript 5+**: Tipat estàtic
+- **Tailwind CSS v4**: Framework CSS utility-first
+- **Shadcn/ui**: Components UI accessibles basats en Radix UI
+- **Zustand**: Gestió d'estat lleugera
 
 ### Backend
 

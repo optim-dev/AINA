@@ -171,7 +171,7 @@ export const askLLM = onCall({ region: REGION, memory: "512MiB" }, async (reques
 			},
 		})
 		console.log(">>>>>>>>>")
-		console.log("response: ", response)
+		// console.log("response: ", response) //TODO REMOVE
 		console.log(">>>>>>>>>")
 		logger.info("✅ LLM response received", {
 			requestId: response.requestId,

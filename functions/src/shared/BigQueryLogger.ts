@@ -26,6 +26,9 @@ export const DEFAULT_PROJECT_ID = process.env.GCLOUD_PROJECT || "aina-demostrado
 /** Default BigQuery dataset name (can be overridden via environment variable) */
 export const DEFAULT_DATASET_ID = process.env.BQ_DATASET || "aina_mvp_metrics"
 
+/** Enable/disable BigQuery logging (default: true) */
+export const USE_BIGQUERY = process.env.USE_BIGQUERY !== "false"
+
 /** Default table name for LLM interaction logs (v2 with anonymization) */
 export const DEFAULT_TABLE_ID = process.env.BQ_TABLE_ID || "llm_logs_v2"
 
@@ -578,6 +581,12 @@ export function createBigQueryLogger(projectId?: string, datasetId: string = DEF
 	const schema = shouldAnonymize ? LLM_LOGS_SCHEMA : LEGACY_LLM_LOGS_SCHEMA
 
 	return async (log: LLMInteractionLog) => {
+		// Skip BigQuery logging if disabled
+		if (!USE_BIGQUERY) {
+			logger.debug("BigQuery logging is disabled (USE_BIGQUERY=false)")
+			return
+		}
+
 		try {
 			// Ensure table exists on first use
 			if (!initialized) {
@@ -685,6 +694,12 @@ export function createLegacyBigQueryLogger(projectId?: string, datasetId: string
 	const manager = getBigQueryManager(projectId, datasetId)
 
 	return async (log: LLMInteractionLog) => {
+		// Skip BigQuery logging if disabled
+		if (!USE_BIGQUERY) {
+			logger.debug("BigQuery logging is disabled (USE_BIGQUERY=false)")
+			return
+		}
+
 		try {
 			// Ensure table exists on first use (using legacy schema)
 			if (!initialized) {
