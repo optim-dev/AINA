@@ -98,17 +98,30 @@ Les Cloud Functions requereixen les següents variables d'entorn configurades a 
 # Project Configuration
 PROJECT_ID=aina-demostradors
 
-# BigQuery Dataset
-BQ_DATASET=aina_logs_dev  # o aina_logs_prod per producció
+# BigQuery Dataset Configuration
+USE_BIGQUERY=true                      # Activa el registre a BigQuery
+BQ_DATASET=aina_logs_dev               # o aina_logs_prod per producció
+BQ_ANONYMIZE_PII=true                  # Anonimitza prompts a BigQuery
 
 # LanguageTool Container URL
-LANGUAGETOOL_URL=http://localhost:8010  # local, o URL de Cloud Run per producció
+# Local (Docker): http://localhost:8010 o http://host.docker.internal:8010
+# Producció: URL del servei Cloud Run
+LANGUAGETOOL_URL=http://localhost:8010
 
 # RAG Service URL
-RAG_SERVICE_URL=http://localhost:8080  # local, o URL de Cloud Run per producció
+# Local (Docker): http://localhost:8080
+# Producció: URL del servei Cloud Run
+RAG_SERVICE_URL=http://localhost:8080
 
 # Storage Bucket
 STORAGE_BUCKET=your-project.firebasestorage.app
+
+# Context Window Strategy Configuration
+CONTEXT_WINDOW_AUTO_FALLBACK=true      # Canvi automàtic a models amb context més gran
+CONTEXT_WINDOW_AUTO_MAP_REDUCE=false   # Map-reduce automàtic (en desenvolupament)
+CONTEXT_WINDOW_DEFAULT_CHUNK_SIZE=1500 # Mida de chunk en tokens
+CONTEXT_WINDOW_DEFAULT_CHUNK_STRATEGY=paragraph  # Estratègia: paragraph, sentence, fixed
+CONTEXT_WINDOW_DEFAULT_OVERLAP_TOKENS=100        # Solapament entre chunks
 ```
 
 _Nota: Les credencials de Gemini API es gestionen internament per LLMService mitjançant Application Default Credentials (ADC)._
